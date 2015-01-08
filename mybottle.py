@@ -1,60 +1,71 @@
 #coding:utf-8
+import re,mimetypes
+from cgi import parse_qs, escape
+from jinja2 import Environment, PackageLoader 
 from wsgiref.simple_server import make_server
 
 
-def application(environ, start_response):
-	start_response('200 OK', [('Content-Type', 'text/html')])
-	return '<h1>Hello, web!</h1>'
-
 class MyBottle:
+    def __init__(self,urls):
+        self.urls = {}
+        for key in urls.keys():
+            url = key
+            if url[0] != '^':   url = '^'+url
+            if url[-1] != '$':  url = url+'$'
+            if url[-2] != '/':  url = url[:-1]+'/$'
+            self.urls[url] = urls[key]
+        self.urls['/static/(.*)/'] = get_static
+        self.request = {'forms':{}}
 
-    urls = (
-        ("/", "index"),
-        ("/hello/(.*)", "hello"),
-    )
-
-    def __init__(self, environ, start_response):
-        self.environ = environ
-        self.start = start_response
-
-    def __iter__(self):
-        #print 'environ : ', self.environ
-        for key in self.environ:
-            print key,' : ',self.environ[key]
-        path = self.environ['PATH_INFO']
-        if path == "/":
-            return self.GET_index()
-        elif path == "/hello":
-            return self.GET_hello()
-        else:
-            return self.notfound()
-
-    def GET_index(self):
+    def __call__(self,environ, start_response):
+        path = environ['PATH_INFO']
+        method = environ['REQUEST_METHOD']
+        if path[-1] != '/': path = path+'/'
+        print 'path : ',path
+        d = parse_qs(environ['QUERY_STRING'])
+        for k in d:
+            d[k] = d[k][0] if d[k] else ''
+        self.request['forms'] = d
+        response_body,content_type = '','text/plain'
+        for url in self.urls:
+            m = re.match(url,path)
+            if m:
+                args = list(m.groups())
+                args = [self.request]+args
+                func = self.urls[url]
+                response = func(*args)
+                if isinstance(response,list):
+                    response_body,content_type = response[0],response[1]
+                else:
+                    response_body = response
+                break
         status = '200 OK'
-        response_headers = [('Content-type', 'text/plain')]
-        self.start(status, response_headers)
-        yield "Welcome!\n"
+        response_headers = [('Content-Type', content_type),('Content-Length', str(len(response_body)))]
+        start_response(status,response_headers)
+        return [response_body]
 
-    def GET_hello(self):
-        status = '200 OK'
-        response_headers = [('Content-type', 'text/plain')]
-        self.start(status, response_headers)
-        yield "Hello world!\n"
+def get_static(request,file_path):
+    return template(file_path)
 
-    def notfound(self):
-        status = '404 Not Found'
-        response_headers = [('Content-type', 'text/plain')]
-        self.start(status, response_headers)
-        yield "Not Found\n"
+def template(file_path):
+    content = ''
+    with open(file_path) as f:
+        content = f.read()
+    tp = mimetypes.guess_type(file_path)
+    return [content,tp[0]]
+
+def render(file_path = '',variables = {}):
+    env = Environment(loader=PackageLoader('mybottle', 'templates'))
+    t = env.get_template(file_path)
+    content = t.render(**variables)
+    tp = mimetypes.guess_type(file_path)
+    return [str(content),tp[0]]
 
 
-def run():
+def run(app):
 	# 创建一个服务器，IP地址为空，端口是8000，处理函数是application:
-	httpd = make_server('', 8000, MyBottle)
+	httpd = make_server('', 8000, app)
 	print "Serving HTTP on port 8000..."
 	# 开始监听HTTP请求:
 	httpd.serve_forever()
 
-
-if __name__ == '__main__':
-	run()
