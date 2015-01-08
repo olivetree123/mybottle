@@ -54,9 +54,11 @@ def template(file_path):
     tp = mimetypes.guess_type(file_path)
     return [content,tp[0]]
 
-def render(file_path = '',variables = {}):
+def render(file_path = '',variables = ''):
+    #variables 本应为字典，但是函数参数的默认值最好不要为可变对象
     env = Environment(loader=PackageLoader('mybottle', 'templates'))
     t = env.get_template(file_path)
+    variables = {} if not variables else variables
     content = t.render(**variables)
     tp = mimetypes.guess_type(file_path)
     return [str(content),tp[0]]
